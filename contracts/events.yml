@@ -1,0 +1,23 @@
+
+```yaml
+name: events
+owner: ai-platform@niloomid.com
+sla:
+  freshness: 15m
+  availability: 99.5%
+schema:
+  event_id: {type: string, required: true, regex: "^[A-Z0-9_-]{12,}$"}
+  event_ts:  {type: timestamp, required: true}
+  event_type:{type: string, required: true, allowed: [CLICK, VIEW, ERROR]}
+  content:   {type: string, required: false}
+quality_gates:
+  - non_null: [event_id, event_ts, event_type]
+  - unique: [event_id]
+  - row_count_min: 1
+retention:
+  bronze: {mode: days, value: 7}
+  silver: {mode: months, value: 12}
+privacy:
+  pii_columns: [content]
+  policy: redact
+```
