@@ -3,6 +3,7 @@
 > **Goal:** A single, production‑ready blueprint, end‑to‑end project with HLA, LLD, Data Flows, code templates, governance, CI/CD, tests, and runbooks. Optimized for **Azure Databricks + Delta/Unity Catalog**, **Airflow** orchestration, **Azure DevOps/GitHub Actions** CI/CD, and **Agentic/RAG** workloads.
 
 ---
+<img width="518" height="155" alt="image" src="https://github.com/user-attachments/assets/b6018e19-d14d-4604-8b30-3ef5041223c0" />
 
 ## Executive Summary & SLOs
 
@@ -29,7 +30,7 @@
 ---
 ## 1) High‑Level Architecture (HLA)
 
-<img width="518" height="155" alt="image" src="https://github.com/user-attachments/assets/b6018e19-d14d-4604-8b30-3ef5041223c0" />
+
 
 ```mermaid
 flowchart LR
