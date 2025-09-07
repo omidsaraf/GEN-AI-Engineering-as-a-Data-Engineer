@@ -253,7 +253,7 @@ niloomid-ai-engineer/
 └── LICENSE
 
 ```
-
+--------
 ## 4.Low‑Level Design (LLD): Data & AI Pipelines
 
 ```mermaid
@@ -354,8 +354,23 @@ sequenceDiagram
 ### API Layer (FastAPI)
 - **Service (`src/api.py`)**
 
-
+------
 ## 5.Build
+
+
+#### Deployment Guide (Step‑by‑Step)
+
+1. **Infra**: Deploy Databricks workspace, Storage, VNets, Key Vault (Terraform/Bicep)
+2. **Unity Catalog**: Create catalog/schemas + RBAC; mount ADLS (MI)
+3. **Secrets**: Create secret scopes for LLM/DB creds
+4. **Data**: Configure Autoloader paths; land sample JSON/CSV
+5. **DLT**: Import `pipeline.json`, attach notebooks, start continuous mode
+6. **GE**: Initialize context; run suites on Silver before Gold writes
+7. **RAG**: Run preprocessing → embeddings → FAISS/Qdrant index build
+8. **Agent/API**: `uvicorn src.api:app --host 0.0.0.0 --port 8080`
+9. **Orchestration**: Enable Airflow DAG; set SLA and alert rules
+10. **CI/CD**: Protect main; require tests + GE; enable environment promotion
+
 
 ### Security, Governance, & Lineage
 
@@ -476,12 +491,24 @@ SELECT event_id,
 FROM niloomid_{env}.clean.events_silver;
 ```
 
+### Great Expectations (suite as YAML)**
+
+```yaml
+expectations:
+  - expect_column_values_to_not_be_null: {column: event_type}
+  - expect_column_values_to_match_regex: {column: event_id, regex: "^[A-Z0-9_-]{12,}$"}
+  - expect_table_row_count_to_be_between: {min_value: 1}
+```
+
 ### Quarantine & Backfill
 
 * On GE failure: write failing rows to `niloomid_{env}.ops.quarantine_events` with run\_id & suite.
 * Open incident, page on‑call, and execute backfill notebook with partition filters.
   
-Data Contracts (Schema, SLAs, DQ)
+
+### Data Contracts (Schema, SLAs, DQ)
+
+**Contract YAML (events) — `contracts/events.yml`**
 
 ### Contract YAML (events)
 
@@ -508,7 +535,100 @@ privacy:
   policy: redact
 ```
 
+**Enforcement**: Validate contracts in CI (schema diff), and at runtime via GE suite mapping.
+
+-------
+
+### RAG Flow (Detailed & Validated)
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as User
+  participant API as FastAPI
+  participant AG as Agent (LangGraph)
+  participant RT as Retriever (Hybrid)
+  participant RR as Reranker
+  participant LLM as LLM
+  participant JDG as Judge (LLM-as-judge)
+
+  U->>API: POST /qa {question}
+  API->>AG: build state (trace_id, user_id)
+  AG->>RT: retrieve top_k (FAISS + BM25)
+  RT-->>AG: candidates (docs + scores)
+  AG->>RR: cross-encoder rerank
+  RR-->>AG: reranked top_k
+  AG->>LLM: grounded prompt (context, rules)
+  LLM-->>AG: answer + citations
+  AG->>JDG: evaluate (faithfulness, relevance)
+  JDG-->>AG: metrics + pass/fail
+  AG->>API: response (answer, citations, metrics)
+  API-->>U: JSON (answer, sources, eval)
+```
+
+**Hybrid Retrieval**
+
+* Vector search (FAISS/Qdrant) + lexical BM25 (Elastic/OpenSearch or `rank_bm25`) → union → rerank (cross‑encoder) → top‑k.
+* Document chunking: 512–1024 tokens with 10–50 overlap; normalize whitespace; strip boilerplate; attach metadata (doc\_id, section, timestamp, source).
+
+**Grounding & Prompt Rules**
+
+* Always include **system instructions**: “Answer strictly from context. If insufficient, say ‘I don’t know.’ Return citations as `[doc_id:chunk_id]`.”
+* Inject **guardrails** (PII redaction, safe completion) and **domain glossary** to reduce ambiguity.
+
+---
+
+### RAG Judgement & Evaluation (Automated)
+
+**Metrics**: `retrieval_hit_rate`, `precision@k`, `faithfulness`, `answer_relevance`, `latency_p95`, `cost_per_req`.
+
+**Eval Harness (offline)** — `tests/test_rag_faithfulness.py`
+
+**Online Eval**
+
+* Log per‑request: retrieved\_ids, rerank\_scores, token\_usage, latency, judge\_scores.
+* Canary gating: if `faithfulness < 0.7` or `hit_rate < 0.8`, trip circuit → fallback (template reply or escalate to human‑in‑loop).
+
+
+
+---
+
+### RAG Evaluation Harness
+tests/test_rag_eval.py
+
+**Metrics to track**: retrieval hit‑rate, precision\@k, faithfulness (LLM judge), answer latency, token usage, cost/request.
+
 ------
+
+## API & Agent (Hardened)
+
+**Prompting**
+
+* System: “You are an enterprise assistant. Use only supplied context. If missing, say ‘I don’t know.’ Return citations.”
+* Policy snippets: blocked topics/PII; max answer length; cite top‑3 contexts.
+
+**FastAPI (with tracing & limits)**
+
+```python
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import time
+
+app = FastAPI()
+
+class Q(BaseModel):
+    question: str
+
+@app.post("/qa")
+def qa(q: Q):
+    t0 = time.time()
+    # retrieve → rerank → llm → judge (omitted)
+    latency = time.time() - t0
+    if latency > 2.5:  # p95 guardrail sample
+        raise HTTPException(503, "SLA breach")
+    return {"answer": "stub", "latency": latency, "citations": []}
+```
+---
 
 ## 6.Delta Live Tables (DLT) — Dataflow
 
@@ -664,10 +784,20 @@ jobs:
       - run: echo "Run GE suites here"
       - run: docker build -t niloomid/api ./docker/api
 ```
+### Version2- CI/CD — Advanced (Bundles, Scans, Promotion)
+
+**Databricks Asset Bundles (DAB) — `databricks.yml`**
+
+**GitHub Actions — hardened**
+
+
+**Promotion Gate**
+
+* Require: unit+integration tests green, GE pass ≥ 99%, cost budget OK, drift < threshold, p95 latency ≤ 2.5s on canary.
 
 ---
 
-## Observability & Runbooks
+## 8.Observability & Runbooks
 
 * **Logging**: Structured logs (JSON) with correlation IDs from DAG → notebooks → API
 * **Metrics**: Throughput, lag, error rate, GE pass %, top‑k recall, LLM token usage
@@ -680,25 +810,39 @@ jobs:
 * Model drift → lower confidence, trigger re‑embed + re‑index
 * Cost spike → autoscaling policy review, cache thresholds, batch window tuning
 
+**Incident Response & SRE Playbook**
+
+* **Sev1**: pipeline down or PII leak suspected → freeze writes, rotate keys, incident bridge.
+* **Sev2**: GE failure > 30m → quarantine + backfill; RCA within 24h.
+* **Sev3**: KPI drift → review transformations; schedule re‑embed.
+
+
 ---
 
 
-## Deployment Guide (Step‑by‑Step)
+## 9.Ready‑to‑Use Checklists
 
-1. **Infra**: Deploy Databricks workspace, Storage, VNets, Key Vault (Terraform/Bicep)
-2. **Unity Catalog**: Create catalog/schemas + RBAC; mount ADLS (MI)
-3. **Secrets**: Create secret scopes for LLM/DB creds
-4. **Data**: Configure Autoloader paths; land sample JSON/CSV
-5. **DLT**: Import `pipeline.json`, attach notebooks, start continuous mode
-6. **GE**: Initialize context; run suites on Silver before Gold writes
-7. **RAG**: Run preprocessing → embeddings → FAISS/Qdrant index build
-8. **Agent/API**: `uvicorn src.api:app --host 0.0.0.0 --port 8080`
-9. **Orchestration**: Enable Airflow DAG; set SLA and alert rules
-10. **CI/CD**: Protect main; require tests + GE; enable environment promotion
+**Env & UC**
 
----
+* [ ] Catalogs/schemas exist; RBAC grants logged (screenshot or SQL history link)
+* [ ] Private Link enabled; subnets isolated
 
-## Ready‑to‑Use Checklists
+**Pipelines**
+
+* [ ] Bronze Autoloader active ≥ 2h; watermark 2h; lag < 5m
+* [ ] Silver GE pass ≥ 99%; quarantine empty
+* [ ] Gold KPIs populated; docs\_text non‑empty
+
+**RAG/Agent/API**
+
+* [ ] Index contains ≥ N vectors; cosine sim average ≥ 0.6 on sample
+* [ ] p95 latency ≤ 2.5s on canary; 0 error spikes in last 24h
+
+**CI/CD & Security**
+
+* [ ] CI green (tests, lint, SAST, secret scan)
+* [ ] DAB deploy succeeded; Workflows scheduled
+* [ ] Cost dashboard within budget
 
 **Pre‑Prod**
 
@@ -712,199 +856,6 @@ jobs:
 * [ ] Canary 10% traffic; monitor p95 latency
 * [ ] Cost guardrails; autoscaling verified
 * [ ] On‑call rota and runbooks published
-
----
-
-## Data Contracts (Schema, SLAs, DQ)
-
-**Contract YAML (events) — `contracts/events.yml`**
-
-**Enforcement**: Validate contracts in CI (schema diff), and at runtime via GE suite mapping.
-
----
-
-## DQ, Privacy & Masking (Operationalized)
-
-**17.1 Great Expectations (suite as YAML)**
-
-```yaml
-expectations:
-  - expect_column_values_to_not_be_null: {column: event_type}
-  - expect_column_values_to_match_regex: {column: event_id, regex: "^[A-Z0-9_-]{12,}$"}
-  - expect_table_row_count_to_be_between: {min_value: 1}
-```
-
-**17.2 Quarantine & Backfill**
-
-* On GE failure: write failing rows to `niloomid_{env}.ops.quarantine_events` with run\_id & suite.
-* Open incident, page on‑call, and execute backfill notebook with partition filters.
-
-**17.3 Masking View (Gold)**
-
-
----
-
-
-
-## CI/CD — Advanced (Bundles, Scans, Promotion)
-
-**Databricks Asset Bundles (DAB) — `databricks.yml`**
-
-**GitHub Actions — hardened**
-
-
-
-**Promotion Gate**
-
-* Require: unit+integration tests green, GE pass ≥ 99%, cost budget OK, drift < threshold, p95 latency ≤ 2.5s on canary.
-
----
-
-## Networking & Secrets
-
-* **Private Link** / service endpoints for Storage & Databricks control plane.
-* **Key Vault** backed secret scopes: `kv-llm-key`, `kv-faiss`, `kv-azure-openai`.
-* No PATs in CI; use OIDC‑based federation to Databricks & Azure.
-
----
-
-## RAG Evaluation Harness (Validated)
-tests/test_rag_eval.py
-
-**Metrics to track**: retrieval hit‑rate, precision\@k, faithfulness (LLM judge), answer latency, token usage, cost/request.
-
----
-
-## Incident Response & SRE Playbook
-
-* **Sev1**: pipeline down or PII leak suspected → freeze writes, rotate keys, incident bridge.
-* **Sev2**: GE failure > 30m → quarantine + backfill; RCA within 24h.
-* **Sev3**: KPI drift → review transformations; schedule re‑embed.
-
----
-
-
-## RAG Flow (Detailed & Validated)
-
-```mermaid
-sequenceDiagram
-  autonumber
-  participant U as User
-  participant API as FastAPI
-  participant AG as Agent (LangGraph)
-  participant RT as Retriever (Hybrid)
-  participant RR as Reranker
-  participant LLM as LLM
-  participant JDG as Judge (LLM-as-judge)
-
-  U->>API: POST /qa {question}
-  API->>AG: build state (trace_id, user_id)
-  AG->>RT: retrieve top_k (FAISS + BM25)
-  RT-->>AG: candidates (docs + scores)
-  AG->>RR: cross-encoder rerank
-  RR-->>AG: reranked top_k
-  AG->>LLM: grounded prompt (context, rules)
-  LLM-->>AG: answer + citations
-  AG->>JDG: evaluate (faithfulness, relevance)
-  JDG-->>AG: metrics + pass/fail
-  AG->>API: response (answer, citations, metrics)
-  API-->>U: JSON (answer, sources, eval)
-```
-
-**Hybrid Retrieval**
-
-* Vector search (FAISS/Qdrant) + lexical BM25 (Elastic/OpenSearch or `rank_bm25`) → union → rerank (cross‑encoder) → top‑k.
-* Document chunking: 512–1024 tokens with 10–50 overlap; normalize whitespace; strip boilerplate; attach metadata (doc\_id, section, timestamp, source).
-
-**Grounding & Prompt Rules**
-
-* Always include **system instructions**: “Answer strictly from context. If insufficient, say ‘I don’t know.’ Return citations as `[doc_id:chunk_id]`.”
-* Inject **guardrails** (PII redaction, safe completion) and **domain glossary** to reduce ambiguity.
-
----
-
-## RAG Judgement & Evaluation (Automated)
-
-**Metrics**: `retrieval_hit_rate`, `precision@k`, `faithfulness`, `answer_relevance`, `latency_p95`, `cost_per_req`.
-
-**Eval Harness (offline)** — `tests/test_rag_faithfulness.py`
-
-**Online Eval**
-
-* Log per‑request: retrieved\_ids, rerank\_scores, token\_usage, latency, judge\_scores.
-* Canary gating: if `faithfulness < 0.7` or `hit_rate < 0.8`, trip circuit → fallback (template reply or escalate to human‑in‑loop).
-
----
-
-## Pipelines — DLT + Jobs (Validated)
-
-**DLT expectations** (see §18) enforce schema and drop bad rows. Enable continuous mode.
-
-**Databricks Workflow (JSON)** — daily rebuild of KPIs & index
-
-```json
-{
-  "name": "niloomid-gold-refresh",
-  "tasks": [
-    {"task_key": "silver",
-     "notebook_task": {"notebook_path": "/Repos/niloomid/20_silver_cleaning.py"}},
-    {"task_key": "gold",
-     "notebook_task": {"notebook_path": "/Repos/niloomid/30_gold_kpis.sql"},
-     "depends_on": [{"task_key": "silver"}]},
-    {"task_key": "embed",
-     "notebook_task": {"notebook_path": "/Repos/niloomid/embed_index.py"},
-     "depends_on": [{"task_key": "gold"}]}
-  ]
-}
-```
-
----
-
-## Airflow Setup (Docker + Databricks Provider)
-
-**Connections**
-
-* `databricks_default`: host/workspace, OAuth or PAT (prefer OAuth via OIDC).
-* `niloomid_kv`: for pulling non-DBX secrets if absolutely needed.
-
-**DAG** — `dags/rag_pipeline.py`
-
-
----
-
-## API & Agent (Hardened)
-
-**Prompting**
-
-* System: “You are an enterprise assistant. Use only supplied context. If missing, say ‘I don’t know.’ Return citations.”
-* Policy snippets: blocked topics/PII; max answer length; cite top‑3 contexts.
-
-**FastAPI (with tracing & limits)**
-
-```python
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-import time
-
-app = FastAPI()
-
-class Q(BaseModel):
-    question: str
-
-@app.post("/qa")
-def qa(q: Q):
-    t0 = time.time()
-    # retrieve → rerank → llm → judge (omitted)
-    latency = time.time() - t0
-    if latency > 2.5:  # p95 guardrail sample
-        raise HTTPException(503, "SLA breach")
-    return {"answer": "stub", "latency": latency, "citations": []}
-```
-
----
-
-
----
 
 
 ## 10.Project — Tools‑Integrated Step‑by‑Step
@@ -1069,28 +1020,6 @@ def qa(q: Q):
 
 ## 11.Full Validation Checklist (Pass/Fail with Evidence)
 
-**Env & UC**
-
-* [ ] Catalogs/schemas exist; RBAC grants logged (screenshot or SQL history link)
-* [ ] Private Link enabled; subnets isolated
-
-**Pipelines**
-
-* [ ] Bronze Autoloader active ≥ 2h; watermark 2h; lag < 5m
-* [ ] Silver GE pass ≥ 99%; quarantine empty
-* [ ] Gold KPIs populated; docs\_text non‑empty
-
-**RAG/Agent/API**
-
-* [ ] Index contains ≥ N vectors; cosine sim average ≥ 0.6 on sample
-* [ ] p95 latency ≤ 2.5s on canary; 0 error spikes in last 24h
-
-**CI/CD & Security**
-
-* [ ] CI green (tests, lint, SAST, secret scan)
-* [ ] DAB deploy succeeded; Workflows scheduled
-* [ ] Cost dashboard within budget
-
 ---
 ## Validation Evidence — What to Capture
 
@@ -1118,9 +1047,6 @@ Data Contracts (YAML example preserved).
 | RAG       | chunk\_size, overlap, top\_k, reranker\_model          |
 | API       | max\_tokens, timeout\_s, p95\_budget\_s                |
 | CI/CD     | branches, env targets, promotion rules                 |
-
-
-
 
 
 
