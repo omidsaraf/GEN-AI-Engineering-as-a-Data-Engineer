@@ -206,10 +206,10 @@ GENAI-ai-engineer/
 ├── workflows/
 │   └── databricks.yml                # Asset Bundles / job orchestration config
 ├── notebooks/
-│   ├── 00_setup_uc.sql               # Unity Catalog setup, catalogs, schemas, grants
-│   ├── 10_autoloader_bronze.py       # Bronze ingestion (batch & streaming)
-│   ├── 20_silver_cleaning.py         # Silver cleaning, dedup, GE validation
-│   ├── 30_gold_kpis.sql              # KPI aggregations
+│   ├── setup_uc.sql               # Unity Catalog setup, catalogs, schemas, grants
+│   ├── autoloader_bronze.py       # Bronze ingestion (batch & streaming)
+│   ├── silver_cleaning.py         # Silver cleaning, dedup, GE validation
+│   ├── gold_kpis.sql              # KPI aggregations
 │   └── embed_index.py                 # Build embeddings & FAISS/Qdrant index
 ├── dlt/
 │   └── pipeline.json                 # Delta Live Tables pipeline config
