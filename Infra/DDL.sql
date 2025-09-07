@@ -1,6 +1,4 @@
-**DDL — Data Model (Bronze → Silver → Gold)**
 
-```sql
 -- Bronze (raw)
 CREATE TABLE IF NOT EXISTS niloomid_dev.raw.events_bronze (
   event_id STRING,
@@ -45,4 +43,4 @@ CREATE TABLE IF NOT EXISTS niloomid_dev.clean.docs_chunks (
   chunk_id STRING,
   chunk_text STRING
 ) USING DELTA;
-```
+
