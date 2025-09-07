@@ -607,7 +607,7 @@ def qa(q: Q):
 
 ## 6.Delta Live Tables (DLT) — Dataflow
 
-<img width="1024" height="1536" alt="image" src="https://github.com/user-attachments/assets/aeb2e6ee-eb1f-4271-a980-74d279307bcf" />
+<img width="289" height="374" alt="image" src="https://github.com/user-attachments/assets/561c3739-3027-45a7-b137-1eff85b501eb" />
 
 
 ```mermaid
