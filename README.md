@@ -379,11 +379,11 @@ repo-root/
 
 ## 1. Infra
 
-### Tools & System Integrations
+### System Integrations
 
 **HLA — System Integration Map**
-<img width="1024" height="1536" alt="image" src="https://github.com/user-attachments/assets/442f58d6-f173-4319-a4ad-9655180b7d39" />
 
+<img width="448" height="555" alt="image" src="https://github.com/user-attachments/assets/b0db8c45-018a-4a94-9c27-ea7560bec615" />
 
 
 ```mermaid
