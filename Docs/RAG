@@ -1,0 +1,24 @@
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as User
+  participant API as FastAPI
+  participant AG as Agent (LangGraph)
+  participant RT as Retriever (Hybrid)
+  participant RR as Reranker
+  participant LLM as LLM
+  participant JDG as Judge (LLM-as-judge)
+
+  U->>API: POST /qa {question}
+  API->>AG: build state (trace_id, user_id)
+  AG->>RT: retrieve top_k (FAISS + BM25)
+  RT-->>AG: candidates (docs + scores)
+  AG->>RR: cross-encoder rerank
+  RR-->>AG: reranked top_k
+  AG->>LLM: grounded prompt (context, rules)
+  LLM-->>AG: answer + citations
+  AG->>JDG: evaluate (faithfulness, relevance)
+  JDG-->>AG: metrics + pass/fail
+  AG->>API: response (answer, citations, metrics)
+  API-->>U: JSON (answer, sources, eval)
+```
