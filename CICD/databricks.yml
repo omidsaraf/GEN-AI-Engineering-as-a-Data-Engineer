@@ -1,0 +1,19 @@
+**Databricks Asset Bundles (DAB)
+
+```yaml
+bundle:
+  name: niloomid-ai
+workspace:
+  root_path: "/Shared/niloomid-ai"
+resources:
+  jobs:
+    rag-pipeline:
+      name: RAG Pipeline
+      tasks:
+        - task_key: silver
+          notebook_task: {notebook_path: "/Repos/niloomid/20_silver_cleaning.py"}
+      schedule: {quartz_cron_expression: "0 0 * * * ?"}
+targets:
+  dev: {workspace: {host: ${env.DBRKS_HOST}}, default: true}
+  prod: {workspace: {host: ${env.DBRKS_HOST_PROD}}}
+```
