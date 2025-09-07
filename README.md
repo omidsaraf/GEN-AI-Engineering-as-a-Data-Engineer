@@ -22,15 +22,12 @@
 | Key Deliverables | Data pipelines (bronze → silver → gold), RAG / LLM / Agents, dashboards, governance & logging |
 
 
-Evaluation Gates:
+**Evaluation Gates**
 
-All pipelines pass unit & integration tests
-
-Metadata & logging verified in Delta/Unity Catalog
-
-Governance & data lineage documented
-
-CI/CD pipeline runs successfully
+- All pipelines pass unit & integration tests
+- Metadata & logging verified in Delta/Unity Catalog
+- Governance & data lineage documented
+- CI/CD pipeline runs successfully
 
 **Scope**
 
