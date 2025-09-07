@@ -29,6 +29,8 @@
 ---
 ## 1) High‑Level Architecture (HLA)
 
+<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/2090d7b8-6d16-4b88-9123-7bb2489a7b9e" />
+
 ```mermaid
 flowchart LR
   %% --- Sources ---
