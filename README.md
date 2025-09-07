@@ -199,58 +199,62 @@ flowchart LR
 ## 3.Repository Layout
 
 ```
-repo-root/
+niloomid-ai-engineer/
 ├── .github/
 │   └── workflows/
-│       └── ci.yml                  # lint, pytest, GE, CodeQL, TruffleHog, Bundles deploy
+│       └── ci.yml                   # Lint, Pytest, GE checks, CodeQL, TruffleHog, bundle deploys
 ├── infra/
-│   ├── terraform/                  # RG, VNet, ADLS, KV, Databricks, Access Connector, Private Endpoints
-│   └── bicep/                      # optional Azure-native templates
+│   ├── terraform/                    # RG, VNet, ADLS, KV, Databricks workspace & access connector
+│   └── bicep/                        # Optional Azure-native templates for IaC
 ├── workflows/
-│   └── databricks.yml              # Databricks Asset Bundles (jobs/workflows/envs)
+│   └── databricks.yml                # Asset Bundles / job orchestration config
 ├── notebooks/
-│   ├── 00_setup_uc.sql            # catalogs, schemas, grants (UC)
-│   ├── 10_autoloader_bronze.py    # streaming & batch landing (Autoloader)
-│   ├── 20_silver_cleaning.py      # cleanse, conform, GE gate
-│   ├── 30_gold_kpis.sql           # KPI aggregations
-│   └── embed_index.py             # build embeddings + FAISS/Qdrant index
+│   ├── 00_setup_uc.sql               # Unity Catalog setup, catalogs, schemas, grants
+│   ├── 10_autoloader_bronze.py       # Bronze ingestion (batch & streaming)
+│   ├── 20_silver_cleaning.py         # Silver cleaning, dedup, GE validation
+│   ├── 30_gold_kpis.sql              # KPI aggregations
+│   └── embed_index.py                 # Build embeddings & FAISS/Qdrant index
 ├── dlt/
-│   └── pipeline.json              # DLT pipeline config (continuous, expectations)
+│   └── pipeline.json                 # Delta Live Tables pipeline config
 ├── dags/
-│   └── rag_pipeline.py            # Airflow DAG (silver → gold → embed)
+│   └── rag_pipeline.py               # Airflow DAG (silver → gold → embed → API)
 ├── src/
-│   ├── ingestion.py               # landing helpers (S3/ADLS/HTTP)
-│   ├── validation.py              # GE wrappers & contract checks
-│   ├── preprocessing.py           # text clean & chunk
-│   ├── embed.py                   # embeddings + FAISS/Qdrant helpers
-│   ├── rag.py                     # retriever + reranker + QA chain
-│   ├── agent.py                   # LangGraph agent graph
-│   ├── api.py                     # FastAPI service (/qa)
-│   └── utils.py                   # logging, config, retries
+│   ├── ingestion.py                  # Landing helpers (S3/ADLS/HTTP/Kafka)
+│   ├── validation.py                 # GE & contract validation wrappers
+│   ├── preprocessing.py              # Text cleaning & chunking
+│   ├── embed.py                      # Embeddings & vector DB helpers
+│   ├── rag.py                        # Retriever + reranker + QA chain
+│   ├── agent.py                      # LangGraph agent orchestration
+│   ├── api.py                        # FastAPI service (/qa)
+│   └── utils.py                      # Logging, retries, configuration helpers
 ├── ge/
 │   ├── great_expectations.yml
-│   ├── expectations/              # suites
-│   └── checkpoints/
+│   ├── expectations/                 # GE expectation suites (Silver / Gold)
+│   └── checkpoints/                  # GE checkpoint configs
 ├── contracts/
-│   └── events.yml                 # schema, SLAs, retention, quality gates
+│   └── events.yml                    # Schema, SLA, retention, quality contracts
 ├── docker/
-│   ├── api/Dockerfile
-│   └── qdrant/docker-compose.yml
+│   ├── api/
+│   │   └── Dockerfile                # FastAPI container
+│   └── qdrant/
+│       └── docker-compose.yml        # Local Qdrant/Vector DB deployment
 ├── tests/
 │   ├── test_chunks.py
 │   ├── test_rag_eval.py
 │   ├── test_ingestion.py
 │   └── test_api_contracts.py
 ├── docs/
-│   ├── adr/                       # architecture decision records
-│   ├── policies/                  # SLOs, RBAC, privacy
-│   └── diagrams/                  # HLA.mmd, RAG_sequence.mmd, DLT_flow.mmd
-├── data/                          # optional samples for local tests
-│   ├── raw/
-│   └── samples/
+│   ├── adr/                          # Architecture Decision Records
+│   ├── policies/                     # SLOs, RBAC, privacy, security
+│   └── diagrams/                     # HLA.mmd, DLT_flow.mmd, RAG_sequence.mmd
+├── data/
+│   ├── raw/                           # Optional raw data for local testing
+│   └── samples/                       # Sample events / text / embeddings
 ├── requirements.txt
 ├── .env.example
-└── README.md
+├── README.md
+└── LICENSE
+
 ```
 
 ## 4.Low‑Level Design (LLD): Data & AI Pipelines
