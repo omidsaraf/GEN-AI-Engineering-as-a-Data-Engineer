@@ -1,11 +1,36 @@
 # GENAI — Data Engineering Project
 
 > **Goal:** a single, production‑ready blueprint, end‑to‑end project with HLA, LLD, Data Flows, code templates, governance, CI/CD, tests, and runbooks. Optimized for **Azure Databricks + Delta/Unity Catalog**, **Airflow** orchestration, **Azure DevOps/GitHub Actions** CI/CD, and **Agentic/RAG** workloads.
+- Build a modular, scalable AI/data platform.
+- Implement end-to-end data pipelines with Grade-A best practices.
+- Deploy RAG/LLM/Agents for intelligent analytics and insights.
+- Ensure security, governance, and auditability.
 
 ---
 <img width="518" height="155" alt="image" src="https://github.com/user-attachments/assets/b6018e19-d14d-4604-8b30-3ef5041223c0" />
 
 ## Executive Summary & SLOs
+**Overview**
+
+| Aspect           | Description                                                                                   |
+| ---------------- | --------------------------------------------------------------------------------------------- |
+| Project Name     | **GENAI — Data Engineering Project**                                                                              |
+| Organization     | **NILOOMID**                                                                                  |
+| Platforms        | Azure Databricks, Delta Lake / Unity Catalog                                                  |
+| Orchestration    | Airflow                                                                                       |
+| CI/CD            | GitHub Actions / Azure DevOps                                                                 |
+| Key Deliverables | Data pipelines (bronze → silver → gold), RAG / LLM / Agents, dashboards, governance & logging |
+
+
+Evaluation Gates:
+
+All pipelines pass unit & integration tests
+
+Metadata & logging verified in Delta/Unity Catalog
+
+Governance & data lineage documented
+
+CI/CD pipeline runs successfully
 
 **Scope**
 
