@@ -29,7 +29,7 @@ Start with Goals, publish a tools map + HLA, then complete foundational setups (
 Each phase follows: Inputs → Actions → Outputs → Validation Gate.
 
 ---
-## 1) High‑Level Architecture (HLA)
+## 1.High‑Level Architecture (HLA)
 
 ```mermaid
 flowchart LR
