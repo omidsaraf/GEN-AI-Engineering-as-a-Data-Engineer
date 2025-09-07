@@ -1,4 +1,4 @@
-# GENAI — AI\_Engineer
+# GENAI — Data Engineering Project
 
 > **Goal:** a single, production‑ready blueprint, end‑to‑end project with HLA, LLD, Data Flows, code templates, governance, CI/CD, tests, and runbooks. Optimized for **Azure Databricks + Delta/Unity Catalog**, **Airflow** orchestration, **Azure DevOps/GitHub Actions** CI/CD, and **Agentic/RAG** workloads.
 
