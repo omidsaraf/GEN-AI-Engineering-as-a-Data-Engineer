@@ -106,9 +106,6 @@ flowchart LR
 
 **HLA — System Integration Map**
 
-<img width="448" height="555" alt="image" src="https://github.com/user-attachments/assets/b0db8c45-018a-4a94-9c27-ea7560bec615" />
-
-
 ```mermaid
 flowchart LR
   subgraph ORCH["Orchestration & CI/CD"]
@@ -259,6 +256,35 @@ niloomid-ai-engineer/
 
 ## 4.Low‑Level Design (LLD): Data & AI Pipelines
 
+```mermaid
+flowchart LR
+  %% left-to-right, quoted labels, no parentheses
+
+  subgraph "Bronze"
+    B["events_bronze"]
+  end
+
+  subgraph "Silver"
+    S["events_silver - GE passed"]
+  end
+
+  subgraph "Gold"
+    G["docs_for_rag"]
+  end
+
+  subgraph "Vectors"
+    E["embeddings"]
+    X["vector_index"]
+  end
+
+  B --> S --> G --> E --> X
+```
+* **Bronze → Silver**: `raw.events_bronze` → `clean.events_silver` (GE gate)
+* **Silver → Gold**: `clean.events_silver` → `gold.kpi_daily`, `gold.docs_text`
+* **Gold/Text → Vector DB**: `gold.docs_text` → embeddings → FAISS/Qdrant index
+* **Vector DB → API**: retriever → LLM → agent → FastAPI (served)
+
+
 ### Ingestion(bronze)
 
 * **Batch**: S3/ADLS/HTTP → Bronze via `src/ingestion.py` with retries, idempotent writes
@@ -292,6 +318,32 @@ niloomid-ai-engineer/
 
 ### RAG & Vector Indexing
 
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as User
+  participant API as FastAPI
+  participant AG as Agent (LangGraph)
+  participant RT as Retriever (Hybrid)
+  participant RR as Reranker
+  participant LLM as LLM
+  participant JDG as Judge (LLM-as-judge)
+
+  U->>API: POST /qa {question}
+  API->>AG: build state (trace_id, user_id)
+  AG->>RT: retrieve top_k (FAISS + BM25)
+  RT-->>AG: candidates (docs + scores)
+  AG->>RR: cross-encoder rerank
+  RR-->>AG: reranked top_k
+  AG->>LLM: grounded prompt (context, rules)
+  LLM-->>AG: answer + citations
+  AG->>JDG: evaluate (faithfulness, relevance)
+  JDG-->>AG: metrics + pass/fail
+  AG->>API: response (answer, citations, metrics)
+  API-->>U: JSON (answer, sources, eval)
+```
+
+
 - **Preprocess & Chunk (`src/preprocessing.py`)**
 - **Embeddings + FAISS (`src/embed.py`)**
 - **Retriever + QA (`src/rag.py`)**
@@ -302,9 +354,163 @@ niloomid-ai-engineer/
 ### API Layer (FastAPI)
 - **Service (`src/api.py`)**
 
+
+## 5.Build
+
+### Security, Governance, & Lineage
+
+* **Identity & Access**: UC groups for roles; service principals for pipelines; **least privilege**.
+* **Secrets**: Key Vault–backed secret scopes; no secrets in notebooks/CI logs, no plaintext keys in code/CI.
+* **Network**: Private Link/Service Endpoints to Storage; restrict egress; IP access lists.
+* **Compute**: Single‑user mode for production jobs; cluster policies enforcing Photon, auto‑termination, tags; pinned runtimes.
+* **Data**: Dynamic views for row/column masking; PII redaction at Silver; DLP scanning in CI.
+* **Lineage/Audit**: UC lineage + Delta history; log `run_id`, inputs/outputs per task.
+
+#### Networking & Secrets
+
+* **Private Link** / service endpoints for Storage & Databricks control plane.
+* **Key Vault** backed secret scopes: `kv-llm-key`, `kv-faiss`, `kv-azure-openai`.
+* No PATs in CI; use OIDC‑based federation to Databricks & Azure.
+
+### Workspaces & UC
+
+* Workspaces: `niloomid-{dev|test|prod}`; Resource Groups: `rg-niloomid-{env}`.
+* Unity Catalog objects:
+
+  * Catalogs: `niloomid_{env}` (e.g., `niloomid_dev`).
+  * Schemas: `raw`, `clean`, `gold`, `meta`, `ops`.
+  * Tables follow `{domain}_{entity}_{layer}` e.g., `events_bronze`, `events_silver`, `kpi_daily`.
+* Jobs & DAGs: `RAG_{domain}_{env}`; Clusters: `dbrx-{layer}-{env}`.
+
+**RBAC**
+
+* Roles: `de_admin`, `de_pipeline`, `data_analyst`, `secops`.
+* Minimal grants (examples):
+
+  * `GRANT USE CATALOG ON CATALOG niloomid_{env} TO de_admin, de_pipeline, data_analyst;`
+  * `GRANT SELECT ON SCHEMA niloomid_{env}.gold TO data_analyst;`
+  * Row‑/column‑level masking via views (see §17.3).
+    
+### Cluster Policies (Security & Cost)
+
+
+## 15) Cluster Policies (Security & Cost)
+
+**Policy JSON (example)**
+
+```json
+{
+  "spark_version": {"type": "fixed", "value": "14.3.x-scala2.12"},
+  "autotermination_minutes": {"type": "range", "minValue": 10, "maxValue": 120, "defaultValue": 30},
+  "num_workers": {"type": "range", "minValue": 1, "maxValue": 10, "defaultValue": 2},
+  "data_security_mode": {"type": "fixed", "value": "SINGLE_USER"},
+  "runtime_engine": {"type": "fixed", "value": "PHOTON"},
+  "aws_attributes": {"availability": {"type": "fixed", "value": "SPOT_WITH_FALLBACK"}},
+  "azure_attributes": {"first_on_demand": {"type": "fixed", "value": 1}},
+  "custom_tags": {"CostCenter": "NILOOMID-DE", "Owner": "DataPlatform"}
+}
+```
+
+Attach to all jobs; enforce spot-with-fallback (or Azure low‑priority) with on‑demand minimum.
+
+---
+
+### Data Model DDL (Bronze → Silver → Gold)
+
+```sql
+-- Bronze
+CREATE TABLE IF NOT EXISTS niloomid_dev.raw.events_bronze (
+  event_id STRING,
+  event_ts TIMESTAMP,
+  event_type STRING,
+  content STRING,
+  src_file STRING,
+  ingest_ts TIMESTAMP
+) USING DELTA TBLPROPERTIES (
+  delta.autoOptimize.optimizeWrite = true,
+  delta.autoOptimize.autoCompact = true
+);
+
+-- Silver (constraints + expectations mirrored)
+CREATE TABLE IF NOT EXISTS niloomid_dev.clean.events_silver (
+  event_id STRING NOT NULL,
+  event_ts TIMESTAMP NOT NULL,
+  event_type STRING NOT NULL,
+  content STRING,
+  event_dt DATE GENERATED ALWAYS AS (CAST(event_ts AS DATE))
+) USING DELTA TBLPROPERTIES (
+  delta.enableChangeDataFeed = true,
+  delta.constraints.event_id_chk = 'event_id RLIKE "^[A-Z0-9_-]{12,}$"'
+);
+
+-- Gold KPIs
+CREATE TABLE IF NOT EXISTS niloomid_dev.gold.kpi_daily AS
+SELECT event_dt, event_type, COUNT(*) AS cnt
+FROM niloomid_dev.clean.events_silver
+GROUP BY event_dt, event_type;
+
+-- Docs & chunks for RAG
+CREATE TABLE IF NOT EXISTS niloomid_dev.clean.docs_raw (
+  doc_id STRING,
+  source STRING,
+  content STRING,
+  load_ts TIMESTAMP
+) USING DELTA;
+
+CREATE TABLE IF NOT EXISTS niloomid_dev.clean.docs_chunks (
+  doc_id STRING,
+  chunk_id STRING,
+  chunk_text STRING
+) USING DELTA;
+```
+
+
+### Masking View (Gold)
+
+```sql
+CREATE OR REPLACE VIEW niloomid_{env}.gold.events_masked AS
+SELECT event_id,
+       event_ts,
+       event_type,
+       CASE WHEN is_member('data_analyst_pii') THEN content ELSE substr(sha2(content,256),1,16) END AS content
+FROM niloomid_{env}.clean.events_silver;
+```
+
+### Quarantine & Backfill
+
+* On GE failure: write failing rows to `niloomid_{env}.ops.quarantine_events` with run\_id & suite.
+* Open incident, page on‑call, and execute backfill notebook with partition filters.
+  
+Data Contracts (Schema, SLAs, DQ)
+
+### Contract YAML (events)
+
+```yaml
+name: events
+owner: ai-platform@niloomid.com
+sla:
+  freshness: 15m
+  availability: 99.5%
+schema:
+  event_id: {type: string, required: true, regex: "^[A-Z0-9_-]{12,}$"}
+  event_ts:  {type: timestamp, required: true}
+  event_type:{type: string, required: true, allowed: [CLICK, VIEW, ERROR]}
+  content:   {type: string, required: false}
+quality_gates:
+  - non_null: [event_id, event_ts, event_type]
+  - unique: [event_id]
+  - row_count_min: 1
+retention:
+  bronze: {mode: days, value: 7}
+  silver: {mode: months, value: 12}
+privacy:
+  pii_columns: [content]
+  policy: redact
+```
+
 ------
 
-## 5.Delta Live Tables (DLT) — Dataflow
+## 6.Delta Live Tables (DLT) — Dataflow
 
 <img width="1024" height="1536" alt="image" src="https://github.com/user-attachments/assets/aeb2e6ee-eb1f-4271-a980-74d279307bcf" />
 
@@ -359,9 +565,49 @@ def kpi():
 ```
 
 ---
----
-
 ## 6.Orchestration — Airflow DAG
+
+ ### version1- Airflow Setup (Docker + Databricks Provider)
+
+**Connections**
+
+* `databricks_default`: host/workspace, OAuth or PAT (prefer OAuth via OIDC).
+* `niloomid_kv`: for pulling non-DBX secrets if absolutely needed.
+
+**DAG** — `dags/rag_pipeline.py`
+
+```python
+from airflow import DAG
+from airflow.providers.databricks.operators.databricks import DatabricksSubmitRunOperator
+from datetime import datetime
+
+new_cluster = {
+  "spark_version": "14.3.x-scala2.12",
+  "num_workers": 2,
+  "data_security_mode": "SINGLE_USER",
+  "spark_conf": {"spark.databricks.delta.properties.defaults.checkpointInterval": "10"}
+}
+
+with DAG("rag_pipeline", start_date=datetime(2025,1,1), schedule_interval="@daily", catchup=False) as dag:
+    silver = DatabricksSubmitRunOperator(
+        task_id="silver",
+        json={"new_cluster": new_cluster,
+              "notebook_task": {"notebook_path": "/Repos/niloomid/20_silver_cleaning.py"}}
+    )
+    gold = DatabricksSubmitRunOperator(
+        task_id="gold",
+        json={"new_cluster": new_cluster,
+              "notebook_task": {"notebook_path": "/Repos/niloomid/30_gold_kpis.sql"}}
+    )
+    embed = DatabricksSubmitRunOperator(
+        task_id="embed",
+        json={"new_cluster": new_cluster,
+              "notebook_task": {"notebook_path": "/Repos/niloomid/embed_index.py"}}
+    )
+    silver >> gold >> embed
+```
+
+### Version2- Orchestration — Airflow DAG
 
 ```python
 # dags/rag_pipeline.py
@@ -403,14 +649,21 @@ flowchart LR
 
 **GitHub Actions (`.github/workflows/ci.yml`)**
 
----
-
-## Security, Governance, & Lineage
-
-* **Unity Catalog** for data governance & access policies
-* **Key Vault** secret scopes; no plaintext keys in code/CI
-* **Lineage** via Unity Catalog + Delta history; log run IDs, input/output tables
-* **PII**: Hashing/tokenization in Silver; role‑based masking views in Gold
+```yaml
+name: ci
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - run: pip install -r requirements.txt
+      - run: pytest -q
+      - run: echo "Run GE suites here"
+      - run: docker build -t niloomid/api ./docker/api
+```
 
 ---
 
@@ -429,6 +682,7 @@ flowchart LR
 
 ---
 
+
 ## Deployment Guide (Step‑by‑Step)
 
 1. **Infra**: Deploy Databricks workspace, Storage, VNets, Key Vault (Terraform/Bicep)
@@ -441,19 +695,6 @@ flowchart LR
 8. **Agent/API**: `uvicorn src.api:app --host 0.0.0.0 --port 8080`
 9. **Orchestration**: Enable Airflow DAG; set SLA and alert rules
 10. **CI/CD**: Protect main; require tests + GE; enable environment promotion
-
----
-
-
-
----
-
-## Traceability Map (What feeds what)
-
-* **Bronze → Silver**: `raw.events_bronze` → `clean.events_silver` (GE gate)
-* **Silver → Gold**: `clean.events_silver` → `gold.kpi_daily`, `gold.docs_text`
-* **Gold/Text → Vector DB**: `gold.docs_text` → embeddings → FAISS/Qdrant index
-* **Vector DB → API**: retriever → LLM → agent → FastAPI (served)
 
 ---
 
@@ -474,12 +715,9 @@ flowchart LR
 
 ---
 
-## Environment, Naming & Conventions
-
 ## Data Contracts (Schema, SLAs, DQ)
 
 **Contract YAML (events) — `contracts/events.yml`**
-
 
 **Enforcement**: Validate contracts in CI (schema diff), and at runtime via GE suite mapping.
 
@@ -504,7 +742,6 @@ expectations:
 **17.3 Masking View (Gold)**
 
 
-
 ---
 
 
@@ -512,7 +749,6 @@ expectations:
 ## CI/CD — Advanced (Bundles, Scans, Promotion)
 
 **Databricks Asset Bundles (DAB) — `databricks.yml`**
-
 
 **GitHub Actions — hardened**
 
@@ -592,8 +828,6 @@ sequenceDiagram
 **Metrics**: `retrieval_hit_rate`, `precision@k`, `faithfulness`, `answer_relevance`, `latency_p95`, `cost_per_req`.
 
 **Eval Harness (offline)** — `tests/test_rag_faithfulness.py`
-
-
 
 **Online Eval**
 
