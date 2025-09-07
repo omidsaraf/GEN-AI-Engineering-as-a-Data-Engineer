@@ -25,12 +25,11 @@
 
 **Plan (Initiate → Build → Operate)**
 
-> start with **Goals**, publish a **comprehensive tools map + HLA**, then complete **all foundational setups first** (infra, networking, **Unity Catalog + tables + security**), and finally build & operate the solution end‑to‑end. Each phase includes **Inputs → Actions (commands/code) → Outputs → Validation Gate**. All LLDs/diagrams and code blocks from earlier sections are preserved and referenced.
+Start with Goals, publish a tools map + HLA, then complete foundational setups (infra, networking, Unity Catalog, security). After that, build ingestion, Silver/Gold pipelines, RAG/Agent/API, orchestration, CI/CD, and SRE observability.
+Each phase follows: Inputs → Actions → Outputs → Validation Gate.
 
 ---
 ## 1) High‑Level Architecture (HLA)
-
-
 
 ```mermaid
 flowchart LR
@@ -93,292 +92,15 @@ flowchart LR
 
 **Notes**
 
-* **Unity Catalog** isolates catalogs per environment; RBAC enforces least privilege.
-* **Private Endpoints** to Storage; secret scopes backed by **Azure Key Vault**.
-* Observability with **OpenTelemetry** traces, **Prometheus/Grafana** dashboards.
----------------
+- Unity Catalog enforces RBAC & isolation.
 
-## Repository Layout (Final, Validated)
+- Private Endpoints secure data plane.
 
-```
-repo-root/
-├── .github/
-│   └── workflows/
-│       └── ci.yml                  # lint, pytest, GE, CodeQL, TruffleHog, Bundles deploy
-├── infra/
-│   ├── terraform/                  # RG, VNet, ADLS, KV, Databricks, Access Connector, Private Endpoints
-│   └── bicep/                      # optional Azure-native templates
-├── workflows/
-│   └── databricks.yml              # Databricks Asset Bundles (jobs/workflows/envs)
-├── notebooks/
-│   ├── 00_setup_uc.sql            # catalogs, schemas, grants (UC)
-│   ├── 10_autoloader_bronze.py    # streaming & batch landing (Autoloader)
-│   ├── 20_silver_cleaning.py      # cleanse, conform, GE gate
-│   ├── 30_gold_kpis.sql           # KPI aggregations
-│   └── embed_index.py             # build embeddings + FAISS/Qdrant index
-├── dlt/
-│   └── pipeline.json              # DLT pipeline config (continuous, expectations)
-├── dags/
-│   └── rag_pipeline.py            # Airflow DAG (silver → gold → embed)
-├── src/
-│   ├── ingestion.py               # landing helpers (S3/ADLS/HTTP)
-│   ├── validation.py              # GE wrappers & contract checks
-│   ├── preprocessing.py           # text clean & chunk
-│   ├── embed.py                   # embeddings + FAISS/Qdrant helpers
-│   ├── rag.py                     # retriever + reranker + QA chain
-│   ├── agent.py                   # LangGraph agent graph
-│   ├── api.py                     # FastAPI service (/qa)
-│   └── utils.py                   # logging, config, retries
-├── ge/
-│   ├── great_expectations.yml
-│   ├── expectations/              # suites
-│   └── checkpoints/
-├── contracts/
-│   └── events.yml                 # schema, SLAs, retention, quality gates
-├── docker/
-│   ├── api/Dockerfile
-│   └── qdrant/docker-compose.yml
-├── tests/
-│   ├── test_chunks.py
-│   ├── test_rag_eval.py
-│   ├── test_ingestion.py
-│   └── test_api_contracts.py
-├── docs/
-│   ├── adr/                       # architecture decision records
-│   ├── policies/                  # SLOs, RBAC, privacy
-│   └── diagrams/                  # HLA.mmd, RAG_sequence.mmd, DLT_flow.mmd
-├── data/                          # optional samples for local tests
-│   ├── raw/
-│   └── samples/
-├── requirements.txt
-├── .env.example
-└── README.md
-```
+- Observability: OTel traces + Prometheus/Grafana dashboards.
 
-## Project — Tools‑Integrated Step‑by‑Step (Validated)
 
-> Reorders **all content** as a project plan, tools‑first. Each step includes **Inputs → Actions → Outputs → Validation** and shows the **tool(s)** used. This preserves earlier sections and points back to their code.
 
-### Step 1 — Bootstrap & Repo
-
-**Tools:** GitHub, GitHub Actions.
-**Inputs:** Repo URL, workstation.
-**Actions:** Clone, set Python venv, install reqs; add base Actions workflow skeleton (lint/tests).
-**Outputs:** Local dev env; `.github/workflows/ci.yml`.
-**Validation:** `pytest -q` green; Actions trigger on PR.
-
-### Step 2 — Provision Infra (IaC)
-
-**Tools:** Terraform/Bicep.
-**Inputs:** Subscription, region, naming vars.
-**Actions:** Deploy RG, VNet/Subnet, ADLS Gen2, Key Vault, **Databricks Workspace**, **Access Connector** (*see Phase 1 TF*).
-**Outputs:** Infra resources, MI principal.
-**Validation:** `terraform apply` success; resources visible in portal.
-
-### Step 3 — Private Networking
-
-**Tools:** Private Link, VNet, DNS.
-**Inputs:** VNet/subnets.
-**Actions:** Add Private Endpoints + DNS zones for Storage/KV.
-**Outputs:** Private data plane.
-**Validation:** Name resolution to `privatelink.*`; public egress blocked.
-
-### Step 4 — Unity Catalog Setup
-
-**Tools:** Databricks SQL, Unity Catalog.
-**Inputs:** Storage URL, Access Connector.
-**Actions:** Create **storage credential**, **external location**, **catalogs**, **schemas**, **volumes**, **grants** (*§27*).
-**Outputs:** `niloomid_{env}` with `raw/clean/gold/meta/ops`.
-**Validation:** `SHOW CATALOGS/SCHEMAS/GRANTS` output captured.
-
-### Step 5 — Secrets & Policies
-
-**Tools:** Key Vault, Databricks Secret Scopes, Cluster Policies.
-**Inputs:** LLM/API keys; policy JSON (*§15*).
-**Actions:** Create KV‑backed scope; apply **Single‑User + Photon** policy; tag clusters.
-**Outputs:** `kv-niloomid` scope; policy ID.
-**Validation:** `dbutils.secrets.get` works; policy blocks unauthorized edits.
-
-### Step 6 — Contracts & DQ
-
-**Tools:** Great Expectations, GitHub Actions.
-**Inputs:** `/contracts/*.yml`.
-**Actions:** Author suites; wire schema diff & GE runs in CI (*§16–17*).
-**Outputs:** GE context/suites; CI gate.
-**Validation:** GE passes locally and in CI; failures quarantine rows.
-
-### Step 7 — Bronze Ingestion
-
-**Tools:** Databricks (Autoloader, Photon), Kafka (optional).
-**Inputs:** Landing paths; schema registry.
-**Actions:** Start Autoloader stream; checkpointing; optional Kafka source (*§3.1*).
-**Outputs:** `raw.events_bronze`.
-**Validation:** Lag < 5m; schema persisted; table populated.
-
-### Step 8 — Silver + GE Gate
-
-**Tools:** Databricks, GE.
-**Inputs:** Bronze; suites.
-**Actions:** Cleanse/conform; derive `event_dt`; apply GE; quarantine failures (*§3.2, §17.2*).
-**Outputs:** `clean.events_silver`; `ops.quarantine_events`.
-**Validation:** GE ≥ 99%; constraints enforced (*§29*).
-
-### Step 9 — Gold KPIs & Text
-
-**Tools:** Databricks SQL, Delta.
-**Inputs:** Silver data.
-**Actions:** Create `gold.kpi_daily`; build `gold.docs_text` (*§3.3, §29*).
-**Outputs:** KPI table; curated text.
-**Validation:** Partition health; expected counts.
-
-### Step 10 — Vector & Search
-
-**Tools:** FAISS/Qdrant, OpenSearch/Elastic (BM25).
-**Inputs:** `gold.docs_text`.
-**Actions:** Chunk/clean → embeddings → FAISS index or Qdrant collection; enable BM25 index (*§3.4*).
-**Outputs:** ANN index; lexical index.
-**Validation:** kNN returns relevant ids; cosine ≥ 0.6.
-
-### Step 11 — RAG & Judgement
-
-**Tools:** LangChain/FAISS + Cross‑Encoder, LLM provider.
-**Inputs:** Indices, prompts.
-**Actions:** Hybrid retrieval → rerank → grounded prompt → **LLM** → **Judge** (*§25–26*).
-**Outputs:** Answers with citations + metrics.
-**Validation:** `hit_rate ≥ 0.85`, `faithfulness ≥ 0.75`; latency p95 ≤ 2.5s.
-
-### Step 12 — Agent & API
-
-**Tools:** LangGraph, FastAPI, OpenTelemetry.
-**Inputs:** RAG chain; keys in KV.
-**Actions:** Build agent graph; expose `/qa`; add tracing & limits; containerize (*§3.5–3.6, §32*).
-**Outputs:** Docker image + service.
-**Validation:** Canary p95 ≤ 2.5s; trace spans present.
-
-### Step 13 — DLT & Workflows
-
-**Tools:** DLT, Databricks Workflows/Bundles.
-**Inputs:** `dlt/pipeline.json`, notebooks.
-**Actions:** Run DLT continuous; schedule Workflows; bundle deploy (*§4, §18–19, §30*).
-**Outputs:** Continuous ELT; scheduled jobs.
-**Validation:** Expectations firing; jobs green.
-
-### Step 14 — Airflow DAGs
-
-**Tools:** Airflow + Databricks provider.
-**Inputs:** DBX connection; DAG code.
-**Actions:** Deploy `rag_pipeline.py` (*§31*).
-**Outputs:** Daily batch orchestration.
-**Validation:** Task success; SLA emails.
-
-### Step 15 — CI/CD & Security Scans
-
-**Tools:** GitHub Actions, CodeQL, TruffleHog, Databricks Bundles.
-**Inputs:** Workflow YAMLs.
-**Actions:** Lint/tests/GE; secret & SAST scans; bundles deploy to dev→prod with approvals (*§6, §19*).
-**Outputs:** Green checks; immutable deploys.
-**Validation:** Promotion gates enforced; rollback path tested.
-
-### Step 16 — Observability & SRE
-
-**Tools:** OpenTelemetry, Prometheus/Grafana, Databricks SQL.
-**Inputs:** Metrics spec.
-**Actions:** Emit logs/metrics/traces; build dashboards for throughput/lag/GE/LLM cost; alerts.
-**Outputs:** Dashboards + alerts.
-**Validation:** Synthetic checks; on‑call rota active.
-
-### Step 17 — Go‑Live & Evidence
-
-**Tools:** All above.
-**Inputs:** Validation checklist (*§24*, §33).
-**Actions:** 10% canary; monitor 24h; capture evidence (grants, lineage, DLT, DAG, CI logs, eval metrics).
-**Outputs:** Prod 100%; runbooks published.
-**Validation:** SLO & cost steady; incident drill passed.
-
-### Tool → Step Matrix
-
-| Tool                                 | Steps    |
-| ------------------------------------ | -------- |
-| Terraform/Bicep                      | 2, 3     |
-| Unity Catalog                        | 4        |
-| Key Vault + Scopes                   | 5        |
-| Cluster Policies                     | 5        |
-| Great Expectations                   | 6, 8     |
-| Databricks (Autoloader/Photon/Delta) | 7–9      |
-| FAISS/Qdrant + BM25                  | 10–11    |
-| LangGraph + FastAPI                  | 12       |
-| DLT + Workflows/Bundles              | 13       |
-| Airflow                              | 14       |
-| GitHub Actions + CodeQL/TruffleHog   | 1, 6, 15 |
-| OpenTelemetry + Grafana/DBSQL        | 16       |
-
----
-
-
-## Source Mapping — How Repo Files Were Incorporated
-
-* `README.md`: baseline blueprint sections (repo layout, UC setup, ingestion, GE, RAG, Airflow, CI) → **sections 1–13**.
-* `1.md`, `2.md`, `3.md`, `5.md`, `a.md`, `final1.md`, `md.md`: merged into **HLA/LLD**, **DLT/GE**, **RAG/Agent**, and **CI/CD** steps; duplicated items deduped; gaps filled (policies, contracts, evaluation, SRE).
-* Any diagrams referenced were re‑drawn as Mermaid for reproducibility.
-
----
-
-## Full Validation Checklist (Pass/Fail with Evidence)
-
-**Env & UC**
-
-* [ ] Catalogs/schemas exist; RBAC grants logged (screenshot or SQL history link)
-* [ ] Private Link enabled; subnets isolated
-
-**Pipelines**
-
-* [ ] Bronze Autoloader active ≥ 2h; watermark 2h; lag < 5m
-* [ ] Silver GE pass ≥ 99%; quarantine empty
-* [ ] Gold KPIs populated; docs\_text non‑empty
-
-**RAG/Agent/API**
-
-* [ ] Index contains ≥ N vectors; cosine sim average ≥ 0.6 on sample
-* [ ] p95 latency ≤ 2.5s on canary; 0 error spikes in last 24h
-
-**CI/CD & Security**
-
-* [ ] CI green (tests, lint, SAST, secret scan)
-* [ ] DAB deploy succeeded; Workflows scheduled
-* [ ] Cost dashboard within budget
-
----
-
-
-
-## Parameterization Matrix
-
-| Layer     | Parameters                                             |
-| --------- | ------------------------------------------------------ |
-| Ingestion | landing path, schema registry path, maxFilesPerTrigger |
-| Silver    | GE suite name, quarantine path/table, primary keys     |
-| Gold      | KPI definitions, partition columns                     |
-| RAG       | chunk\_size, overlap, top\_k, reranker\_model          |
-| API       | max\_tokens, timeout\_s, p95\_budget\_s                |
-| CI/CD     | branches, env targets, promotion rules                 |
-
----
-
-## Validation Evidence — What to Capture
-
-* **Screenshots/links**: UC grants, lineage graph, DLT run with expectations, Airflow DAG runs.
-* **Tables**: metrics table `ops.rag_eval_metrics` with daily aggregates.
-* **Logs**: structured request logs with `trace_id`, token usage, latency.
------
-
-
-
-
-
-
-
-
-## 1. Infra
+## 2. Infra & Tools
 
 ### System Integrations
 
@@ -472,9 +194,68 @@ flowchart LR
 | Network       | Private Link / VNet            | Private plane                                     | Compliance, egress control                      | Reduce exposure                     | NSGs/Firewall req                |
 
 
-## Low‑Level Design (LLD): Data & AI Pipelines
+---------------
 
-### Ingestion
+## 3.Repository Layout
+
+```
+repo-root/
+├── .github/
+│   └── workflows/
+│       └── ci.yml                  # lint, pytest, GE, CodeQL, TruffleHog, Bundles deploy
+├── infra/
+│   ├── terraform/                  # RG, VNet, ADLS, KV, Databricks, Access Connector, Private Endpoints
+│   └── bicep/                      # optional Azure-native templates
+├── workflows/
+│   └── databricks.yml              # Databricks Asset Bundles (jobs/workflows/envs)
+├── notebooks/
+│   ├── 00_setup_uc.sql            # catalogs, schemas, grants (UC)
+│   ├── 10_autoloader_bronze.py    # streaming & batch landing (Autoloader)
+│   ├── 20_silver_cleaning.py      # cleanse, conform, GE gate
+│   ├── 30_gold_kpis.sql           # KPI aggregations
+│   └── embed_index.py             # build embeddings + FAISS/Qdrant index
+├── dlt/
+│   └── pipeline.json              # DLT pipeline config (continuous, expectations)
+├── dags/
+│   └── rag_pipeline.py            # Airflow DAG (silver → gold → embed)
+├── src/
+│   ├── ingestion.py               # landing helpers (S3/ADLS/HTTP)
+│   ├── validation.py              # GE wrappers & contract checks
+│   ├── preprocessing.py           # text clean & chunk
+│   ├── embed.py                   # embeddings + FAISS/Qdrant helpers
+│   ├── rag.py                     # retriever + reranker + QA chain
+│   ├── agent.py                   # LangGraph agent graph
+│   ├── api.py                     # FastAPI service (/qa)
+│   └── utils.py                   # logging, config, retries
+├── ge/
+│   ├── great_expectations.yml
+│   ├── expectations/              # suites
+│   └── checkpoints/
+├── contracts/
+│   └── events.yml                 # schema, SLAs, retention, quality gates
+├── docker/
+│   ├── api/Dockerfile
+│   └── qdrant/docker-compose.yml
+├── tests/
+│   ├── test_chunks.py
+│   ├── test_rag_eval.py
+│   ├── test_ingestion.py
+│   └── test_api_contracts.py
+├── docs/
+│   ├── adr/                       # architecture decision records
+│   ├── policies/                  # SLOs, RBAC, privacy
+│   └── diagrams/                  # HLA.mmd, RAG_sequence.mmd, DLT_flow.mmd
+├── data/                          # optional samples for local tests
+│   ├── raw/
+│   └── samples/
+├── requirements.txt
+├── .env.example
+└── README.md
+```
+
+## 4.Low‑Level Design (LLD): Data & AI Pipelines
+
+### Ingestion(bronze)
 
 * **Batch**: S3/ADLS/HTTP → Bronze via `src/ingestion.py` with retries, idempotent writes
 * **Streaming**: Kafka → Bronze Autoloader with 2h watermark for joins
@@ -483,13 +264,10 @@ flowchart LR
 
 ### Silver (Cleanse/Conform)
 
-* Dedup, null/PII handling, type conformance
-* **DQ Gate**: Great Expectations suite must pass → otherwise quarantine & alert
-
-**Silver Notebook (`silver_cleaning.py`)**
-
-
-**Great Expectations (example suite)** — `ge/suites/events_silver.json`
+- Dedup, null/PII handling, type conformance
+- **DQ Gate**: Great Expectations suite must pass → otherwise quarantine & alert
+- **Silver Notebook (`silver_cleaning.py`)**
+- **Great Expectations (example suite)** — `ge/suites/events_silver.json`
 
 ```json
 {
@@ -503,32 +281,26 @@ flowchart LR
 
 ### Gold (KPIs/Curated Text)
 
-* Aggregate KPIs for dashboards; build **curated text** table for RAG
-
-**Gold SQL (`gold_kpis.sql`)**
+- KPIs aggregation + curated text for RAG.
+- **Gold SQL (`gold_kpis.sql`)**
 
 
 
 ### RAG & Vector Indexing
 
-**Preprocess & Chunk (`src/preprocessing.py`)**
-
-**Embeddings + FAISS (`src/embed.py`)**
-
-**Retriever + QA (`src/rag.py`)**
+- **Preprocess & Chunk (`src/preprocessing.py`)**
+- **Embeddings + FAISS (`src/embed.py`)**
+- **Retriever + QA (`src/rag.py`)**
 
 ### Agentic Workflow (LangGraph)
-
-**Agent (`src/agent.py`)**
+- **Agent (`src/agent.py`)**
 
 ### API Layer (FastAPI)
+- **Service (`src/api.py`)**
 
-**Service (`src/api.py`)**
+------
 
-
----
-
-## Delta Live Tables (DLT) — Dataflow
+## 5.Delta Live Tables (DLT) — Dataflow
 
 <img width="1024" height="1536" alt="image" src="https://github.com/user-attachments/assets/aeb2e6ee-eb1f-4271-a980-74d279307bcf" />
 
@@ -559,10 +331,33 @@ flowchart LR
   "photon": true
 }
 ```
+### DLT Tables with Expectations (Enforced)
+
+**DLT notebook snippet**
+
+```python
+import dlt
+from pyspark.sql.functions import col
+
+@dlt.table(name="events_bronze")
+def bronze():
+    return spark.readStream.format("cloudFiles").option("cloudFiles.format","json").load("/mnt/lake/landing/events")
+
+@dlt.expect("valid_event_type", "event_type IS NOT NULL")
+@dlt.expect_or_drop("valid_id", "event_id RLIKE '^[A-Z0-9_-]{12,}$'")
+@dlt.table(name="events_silver")
+def silver():
+    return dlt.read_stream("events_bronze").dropDuplicates(["event_id"]).withColumn("event_dt", col("event_ts").cast("date"))
+
+@dlt.table(name="kpi_daily")
+def kpi():
+    return dlt.read("events_silver").groupBy("event_dt","event_type").count()
+```
 
 ---
+---
 
-## Orchestration — Airflow DAG
+## 6.Orchestration — Airflow DAG
 
 ```python
 # dags/rag_pipeline.py
@@ -585,7 +380,7 @@ with DAG("rag_pipeline", start_date=datetime(2025,1,1), schedule_interval="@dail
 
 ---
 
-## CI/CD — Tests, Quality Gates, Deploy
+## 7.CI/CD — Tests, Quality Gates, Deploy
 
 ```mermaid
 flowchart LR
@@ -630,11 +425,6 @@ flowchart LR
 
 ---
 
-## Example Tests (pytest)
-
-
----
-
 ## Deployment Guide (Step‑by‑Step)
 
 1. **Infra**: Deploy Databricks workspace, Storage, VNets, Key Vault (Terraform/Bicep)
@@ -649,8 +439,6 @@ flowchart LR
 10. **CI/CD**: Protect main; require tests + GE; enable environment promotion
 
 ---
-
-## Appendix — Metadata Tables (Optional, aligns with UDP/ETL frameworks)
 
 
 
@@ -715,30 +503,7 @@ expectations:
 
 ---
 
-## DLT Tables with Expectations (Enforced)
 
-**DLT notebook snippet**
-
-```python
-import dlt
-from pyspark.sql.functions import col
-
-@dlt.table(name="events_bronze")
-def bronze():
-    return spark.readStream.format("cloudFiles").option("cloudFiles.format","json").load("/mnt/lake/landing/events")
-
-@dlt.expect("valid_event_type", "event_type IS NOT NULL")
-@dlt.expect_or_drop("valid_id", "event_id RLIKE '^[A-Z0-9_-]{12,}$'")
-@dlt.table(name="events_silver")
-def silver():
-    return dlt.read_stream("events_bronze").dropDuplicates(["event_id"]).withColumn("event_dt", col("event_ts").cast("date"))
-
-@dlt.table(name="kpi_daily")
-def kpi():
-    return dlt.read("events_silver").groupBy("event_dt","event_type").count()
-```
-
----
 
 ## CI/CD — Advanced (Bundles, Scans, Promotion)
 
@@ -902,6 +667,219 @@ def qa(q: Q):
 
 
 ---
+
+
+## 10.Project — Tools‑Integrated Step‑by‑Step
+
+> Each step includes **Inputs → Actions → Outputs → Validation** and shows the **tool(s)** used.
+
+### Step 1 — Bootstrap & Repo
+
+**Tools:** GitHub, GitHub Actions.
+**Inputs:** Repo URL, workstation.
+**Actions:** Clone, set Python venv, install reqs; add base Actions workflow skeleton (lint/tests).
+**Outputs:** Local dev env; `.github/workflows/ci.yml`.
+**Validation:** `pytest -q` green; Actions trigger on PR.
+
+### Step 2 — Provision Infra (IaC)
+
+**Tools:** Terraform/Bicep.
+**Inputs:** Subscription, region, naming vars.
+**Actions:** Deploy RG, VNet/Subnet, ADLS Gen2, Key Vault, **Databricks Workspace**, **Access Connector** (*see Phase 1 TF*).
+**Outputs:** Infra resources, MI principal.
+**Validation:** `terraform apply` success; resources visible in portal.
+
+### Step 3 — Private Networking
+
+**Tools:** Private Link, VNet, DNS.
+**Inputs:** VNet/subnets.
+**Actions:** Add Private Endpoints + DNS zones for Storage/KV.
+**Outputs:** Private data plane.
+**Validation:** Name resolution to `privatelink.*`; public egress blocked.
+
+### Step 4 — Unity Catalog Setup
+
+**Tools:** Databricks SQL, Unity Catalog.
+**Inputs:** Storage URL, Access Connector.
+**Actions:** Create **storage credential**, **external location**, **catalogs**, **schemas**, **volumes**, **grants** (*§27*).
+**Outputs:** `niloomid_{env}` with `raw/clean/gold/meta/ops`.
+**Validation:** `SHOW CATALOGS/SCHEMAS/GRANTS` output captured.
+
+### Step 5 — Secrets & Policies
+
+**Tools:** Key Vault, Databricks Secret Scopes, Cluster Policies.
+**Inputs:** LLM/API keys; policy JSON (*§15*).
+**Actions:** Create KV‑backed scope; apply **Single‑User + Photon** policy; tag clusters.
+**Outputs:** `kv-niloomid` scope; policy ID.
+**Validation:** `dbutils.secrets.get` works; policy blocks unauthorized edits.
+
+### Step 6 — Contracts & DQ
+
+**Tools:** Great Expectations, GitHub Actions.
+**Inputs:** `/contracts/*.yml`.
+**Actions:** Author suites; wire schema diff & GE runs in CI (*§16–17*).
+**Outputs:** GE context/suites; CI gate.
+**Validation:** GE passes locally and in CI; failures quarantine rows.
+
+### Step 7 — Bronze Ingestion
+
+**Tools:** Databricks (Autoloader, Photon), Kafka (optional).
+**Inputs:** Landing paths; schema registry.
+**Actions:** Start Autoloader stream; checkpointing; optional Kafka source (*§3.1*).
+**Outputs:** `raw.events_bronze`.
+**Validation:** Lag < 5m; schema persisted; table populated.
+
+### Step 8 — Silver + GE Gate
+
+**Tools:** Databricks, GE.
+**Inputs:** Bronze; suites.
+**Actions:** Cleanse/conform; derive `event_dt`; apply GE; quarantine failures (*§3.2, §17.2*).
+**Outputs:** `clean.events_silver`; `ops.quarantine_events`.
+**Validation:** GE ≥ 99%; constraints enforced (*§29*).
+
+### Step 9 — Gold KPIs & Text
+
+**Tools:** Databricks SQL, Delta.
+**Inputs:** Silver data.
+**Actions:** Create `gold.kpi_daily`; build `gold.docs_text` (*§3.3, §29*).
+**Outputs:** KPI table; curated text.
+**Validation:** Partition health; expected counts.
+
+### Step 10 — Vector & Search
+
+**Tools:** FAISS/Qdrant, OpenSearch/Elastic (BM25).
+**Inputs:** `gold.docs_text`.
+**Actions:** Chunk/clean → embeddings → FAISS index or Qdrant collection; enable BM25 index (*§3.4*).
+**Outputs:** ANN index; lexical index.
+**Validation:** kNN returns relevant ids; cosine ≥ 0.6.
+
+### Step 11 — RAG & Judgement
+
+**Tools:** LangChain/FAISS + Cross‑Encoder, LLM provider.
+**Inputs:** Indices, prompts.
+**Actions:** Hybrid retrieval → rerank → grounded prompt → **LLM** → **Judge** (*§25–26*).
+**Outputs:** Answers with citations + metrics.
+**Validation:** `hit_rate ≥ 0.85`, `faithfulness ≥ 0.75`; latency p95 ≤ 2.5s.
+
+### Step 12 — Agent & API
+
+**Tools:** LangGraph, FastAPI, OpenTelemetry.
+**Inputs:** RAG chain; keys in KV.
+**Actions:** Build agent graph; expose `/qa`; add tracing & limits; containerize (*§3.5–3.6, §32*).
+**Outputs:** Docker image + service.
+**Validation:** Canary p95 ≤ 2.5s; trace spans present.
+
+### Step 13 — DLT & Workflows
+
+**Tools:** DLT, Databricks Workflows/Bundles.
+**Inputs:** `dlt/pipeline.json`, notebooks.
+**Actions:** Run DLT continuous; schedule Workflows; bundle deploy (*§4, §18–19, §30*).
+**Outputs:** Continuous ELT; scheduled jobs.
+**Validation:** Expectations firing; jobs green.
+
+### Step 14 — Airflow DAGs
+
+**Tools:** Airflow + Databricks provider.
+**Inputs:** DBX connection; DAG code.
+**Actions:** Deploy `rag_pipeline.py` (*§31*).
+**Outputs:** Daily batch orchestration.
+**Validation:** Task success; SLA emails.
+
+### Step 15 — CI/CD & Security Scans
+
+**Tools:** GitHub Actions, CodeQL, TruffleHog, Databricks Bundles.
+**Inputs:** Workflow YAMLs.
+**Actions:** Lint/tests/GE; secret & SAST scans; bundles deploy to dev→prod with approvals (*§6, §19*).
+**Outputs:** Green checks; immutable deploys.
+**Validation:** Promotion gates enforced; rollback path tested.
+
+### Step 16 — Observability & SRE
+
+**Tools:** OpenTelemetry, Prometheus/Grafana, Databricks SQL.
+**Inputs:** Metrics spec.
+**Actions:** Emit logs/metrics/traces; build dashboards for throughput/lag/GE/LLM cost; alerts.
+**Outputs:** Dashboards + alerts.
+**Validation:** Synthetic checks; on‑call rota active.
+
+### Step 17 — Go‑Live & Evidence
+
+**Tools:** All above.
+**Inputs:** Validation checklist (*§24*, §33).
+**Actions:** 10% canary; monitor 24h; capture evidence (grants, lineage, DLT, DAG, CI logs, eval metrics).
+**Outputs:** Prod 100%; runbooks published.
+**Validation:** SLO & cost steady; incident drill passed.
+
+### Tool → Step Matrix
+
+| Tool                                 | Steps    |
+| ------------------------------------ | -------- |
+| Terraform/Bicep                      | 2, 3     |
+| Unity Catalog                        | 4        |
+| Key Vault + Scopes                   | 5        |
+| Cluster Policies                     | 5        |
+| Great Expectations                   | 6, 8     |
+| Databricks (Autoloader/Photon/Delta) | 7–9      |
+| FAISS/Qdrant + BM25                  | 10–11    |
+| LangGraph + FastAPI                  | 12       |
+| DLT + Workflows/Bundles              | 13       |
+| Airflow                              | 14       |
+| GitHub Actions + CodeQL/TruffleHog   | 1, 6, 15 |
+| OpenTelemetry + Grafana/DBSQL        | 16       |
+
+---
+
+
+## 11.Full Validation Checklist (Pass/Fail with Evidence)
+
+**Env & UC**
+
+* [ ] Catalogs/schemas exist; RBAC grants logged (screenshot or SQL history link)
+* [ ] Private Link enabled; subnets isolated
+
+**Pipelines**
+
+* [ ] Bronze Autoloader active ≥ 2h; watermark 2h; lag < 5m
+* [ ] Silver GE pass ≥ 99%; quarantine empty
+* [ ] Gold KPIs populated; docs\_text non‑empty
+
+**RAG/Agent/API**
+
+* [ ] Index contains ≥ N vectors; cosine sim average ≥ 0.6 on sample
+* [ ] p95 latency ≤ 2.5s on canary; 0 error spikes in last 24h
+
+**CI/CD & Security**
+
+* [ ] CI green (tests, lint, SAST, secret scan)
+* [ ] DAB deploy succeeded; Workflows scheduled
+* [ ] Cost dashboard within budget
+
+---
+## Validation Evidence — What to Capture
+
+* **Screenshots/links**: UC grants, lineage graph, DLT run with expectations, Airflow DAG runs.
+* **Tables**: metrics table `ops.rag_eval_metrics` with daily aggregates.
+* **Logs**: structured request logs with `trace_id`, token usage, latency.
+-----
+
+
+## 12.Appendices
+
+Metadata Tables (optional).
+Traceability Map (Bronze → Silver → Gold → Vector DB → API).
+Ready-to-Use Checklists (Pre-Prod + Go-Live).
+Environment, Naming & Conventions.
+Data Contracts (YAML example preserved).
+
+## Parameterization Matrix
+
+| Layer     | Parameters                                             |
+| --------- | ------------------------------------------------------ |
+| Ingestion | landing path, schema registry path, maxFilesPerTrigger |
+| Silver    | GE suite name, quarantine path/table, primary keys     |
+| Gold      | KPI definitions, partition columns                     |
+| RAG       | chunk\_size, overlap, top\_k, reranker\_model          |
+| API       | max\_tokens, timeout\_s, p95\_budget\_s                |
+| CI/CD     | branches, env targets, promotion rules                 |
 
 
 
