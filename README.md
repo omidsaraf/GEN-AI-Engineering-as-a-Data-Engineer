@@ -194,7 +194,72 @@ flowchart LR
 ---------------
 
 ## 3.Repository Layout
-
+```
+niloomid-databricks-lakehouse/
+├─ README.md
+├─ LICENSE
+├─ CONTRIBUTING.md
+├─ SECURITY.md
+├─ CODEOWNERS
+├─ .gitignore
+├─ .editorconfig
+├─ .pre-commit-config.yaml
+├─ .gitattributes
+├─ azure-pipelines.yml # optional: if using Azure DevOps CI/CD
+├─ devops/ # Azure DevOps multi-stage (alt to GH Actions)
+│ ├─ ci.yml
+│ └─ cd.yml
+├─ .github/
+│ ├─ ISSUE_TEMPLATE.md
+│ ├─ PULL_REQUEST_TEMPLATE.md
+│ └─ workflows/
+│ ├─ ci.yml # lint/tests/contracts
+│ ├─ rag_eval.yml # LLM-judge gates (optional)
+│ └─ codeql.yml # security scan
+├─ docs/
+│ ├─ HLA.md
+│ ├─ LLD.md
+│ ├─ RAG.md
+│ ├─ Agents.md
+│ ├─ Runbook.md
+│ └─ Architecture.mmd # Mermaid diagrams
+├─ infra/
+│ ├─ azure/
+│ │ ├─ main.tf
+│ │ └─ variables.tf
+│ └─ databricks/
+│ ├─ main.tf
+│ └─ policies/etl_restricted.json
+├─ pipelines/
+│ ├─ bundles.yaml
+│ ├─ dlt/
+│ │ └─ telecom_dlt.json
+│ └─ jobs/
+│ ├─ bronze_autoloader_job.json
+│ ├─ silver_standardize_job.json
+│ └─ gold_publish_job.json
+├─ orchestration/
+│ └─ airflow/
+│ ├─ dags/
+│ │ ├─ domain_ingest_daily.py
+│ │ ├─ silver_transform.py
+│ │ ├─ gold_publish.py
+│ │ ├─ rag_pipeline.py
+│ │ └─ agent_proactive_tasks.py
+│ └─ plugins/
+│ └─ callbacks.py
+├─ domains/
+│ ├─ jarvis/
+│ │ ├─ contracts/jarvis_service.schema.json
+│ │ └─ notebooks/
+│ │ ├─ bronze_autoloader_jarvis.py
+│ │ └─ silver_service_cleanse.py
+│ ├─ amdm/
+│ │ ├─ contracts/amdm_address.schema.json
+│ │ └─ notebooks/
+│ │ ├─ bronze_autoloader_amdm.py
+└─ validate_contracts.py
+```
 ```
 GENAI-ai-engineer/
 ├── .github/
