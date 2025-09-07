@@ -529,6 +529,9 @@ flowchart LR
 
 ## Delta Live Tables (DLT) — Dataflow
 
+<img width="1024" height="1536" alt="image" src="https://github.com/user-attachments/assets/aeb2e6ee-eb1f-4271-a980-74d279307bcf" />
+
+
 ```mermaid
 flowchart LR
   A[Autoloader: landing/events] --> B((Bronze events_bronze))
