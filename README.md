@@ -1,4 +1,4 @@
-# NILOOMID — AI\_Engineer
+# GENAI — AI\_Engineer
 
 > **Goal:** a single, production‑ready blueprint, end‑to‑end project with HLA, LLD, Data Flows, code templates, governance, CI/CD, tests, and runbooks. Optimized for **Azure Databricks + Delta/Unity Catalog**, **Airflow** orchestration, **Azure DevOps/GitHub Actions** CI/CD, and **Agentic/RAG** workloads.
 
@@ -196,7 +196,7 @@ flowchart LR
 ## 3.Repository Layout
 
 ```
-niloomid-ai-engineer/
+GENAI-ai-engineer/
 ├── .github/
 │   └── workflows/
 │       └── ci.yml                   # Lint, Pytest, GE checks, CodeQL, TruffleHog, bundle deploys
@@ -389,10 +389,10 @@ sequenceDiagram
 
 ### Workspaces & UC
 
-* Workspaces: `niloomid-{dev|test|prod}`; Resource Groups: `rg-niloomid-{env}`.
+* Workspaces: `GENAI-{dev|test|prod}`; Resource Groups: `rg-GENAI-{env}`.
 * Unity Catalog objects:
 
-  * Catalogs: `niloomid_{env}` (e.g., `niloomid_dev`).
+  * Catalogs: `GENAI_{env}` (e.g., `GENAI_dev`).
   * Schemas: `raw`, `clean`, `gold`, `meta`, `ops`.
   * Tables follow `{domain}_{entity}_{layer}` e.g., `events_bronze`, `events_silver`, `kpi_daily`.
 * Jobs & DAGs: `RAG_{domain}_{env}`; Clusters: `dbrx-{layer}-{env}`.
@@ -402,8 +402,8 @@ sequenceDiagram
 * Roles: `de_admin`, `de_pipeline`, `data_analyst`, `secops`.
 * Minimal grants (examples):
 
-  * `GRANT USE CATALOG ON CATALOG niloomid_{env} TO de_admin, de_pipeline, data_analyst;`
-  * `GRANT SELECT ON SCHEMA niloomid_{env}.gold TO data_analyst;`
+  * `GRANT USE CATALOG ON CATALOG GENAI_{env} TO de_admin, de_pipeline, data_analyst;`
+  * `GRANT SELECT ON SCHEMA GENAI_{env}.gold TO data_analyst;`
   * Row‑/column‑level masking via views (see §17.3).
     
 ### Cluster Policies (Security & Cost)
@@ -422,7 +422,7 @@ sequenceDiagram
   "runtime_engine": {"type": "fixed", "value": "PHOTON"},
   "aws_attributes": {"availability": {"type": "fixed", "value": "SPOT_WITH_FALLBACK"}},
   "azure_attributes": {"first_on_demand": {"type": "fixed", "value": 1}},
-  "custom_tags": {"CostCenter": "NILOOMID-DE", "Owner": "DataPlatform"}
+  "custom_tags": {"CostCenter": "GENAI-DE", "Owner": "DataPlatform"}
 }
 ```
 
@@ -434,7 +434,7 @@ Attach to all jobs; enforce spot-with-fallback (or Azure low‑priority) with on
 
 ```sql
 -- Bronze
-CREATE TABLE IF NOT EXISTS niloomid_dev.raw.events_bronze (
+CREATE TABLE IF NOT EXISTS GENAI_dev.raw.events_bronze (
   event_id STRING,
   event_ts TIMESTAMP,
   event_type STRING,
@@ -447,7 +447,7 @@ CREATE TABLE IF NOT EXISTS niloomid_dev.raw.events_bronze (
 );
 
 -- Silver (constraints + expectations mirrored)
-CREATE TABLE IF NOT EXISTS niloomid_dev.clean.events_silver (
+CREATE TABLE IF NOT EXISTS GENAI_dev.clean.events_silver (
   event_id STRING NOT NULL,
   event_ts TIMESTAMP NOT NULL,
   event_type STRING NOT NULL,
@@ -459,20 +459,20 @@ CREATE TABLE IF NOT EXISTS niloomid_dev.clean.events_silver (
 );
 
 -- Gold KPIs
-CREATE TABLE IF NOT EXISTS niloomid_dev.gold.kpi_daily AS
+CREATE TABLE IF NOT EXISTS GENAI_dev.gold.kpi_daily AS
 SELECT event_dt, event_type, COUNT(*) AS cnt
-FROM niloomid_dev.clean.events_silver
+FROM GENAI_dev.clean.events_silver
 GROUP BY event_dt, event_type;
 
 -- Docs & chunks for RAG
-CREATE TABLE IF NOT EXISTS niloomid_dev.clean.docs_raw (
+CREATE TABLE IF NOT EXISTS GENAI_dev.clean.docs_raw (
   doc_id STRING,
   source STRING,
   content STRING,
   load_ts TIMESTAMP
 ) USING DELTA;
 
-CREATE TABLE IF NOT EXISTS niloomid_dev.clean.docs_chunks (
+CREATE TABLE IF NOT EXISTS GENAI_dev.clean.docs_chunks (
   doc_id STRING,
   chunk_id STRING,
   chunk_text STRING
@@ -483,12 +483,12 @@ CREATE TABLE IF NOT EXISTS niloomid_dev.clean.docs_chunks (
 ### Masking View (Gold)
 
 ```sql
-CREATE OR REPLACE VIEW niloomid_{env}.gold.events_masked AS
+CREATE OR REPLACE VIEW GENAI_{env}.gold.events_masked AS
 SELECT event_id,
        event_ts,
        event_type,
        CASE WHEN is_member('data_analyst_pii') THEN content ELSE substr(sha2(content,256),1,16) END AS content
-FROM niloomid_{env}.clean.events_silver;
+FROM GENAI_{env}.clean.events_silver;
 ```
 
 ### Great Expectations (suite as YAML)**
@@ -502,7 +502,7 @@ expectations:
 
 ### Quarantine & Backfill
 
-* On GE failure: write failing rows to `niloomid_{env}.ops.quarantine_events` with run\_id & suite.
+* On GE failure: write failing rows to `GENAI_{env}.ops.quarantine_events` with run\_id & suite.
 * Open incident, page on‑call, and execute backfill notebook with partition filters.
   
 
@@ -514,7 +514,7 @@ expectations:
 
 ```yaml
 name: events
-owner: ai-platform@niloomid.com
+owner: ai-platform@GENAI.com
 sla:
   freshness: 15m
   availability: 99.5%
@@ -627,7 +627,7 @@ flowchart LR
 
 ```json
 {
-  "name": "niloomid-dlt",
+  "name": "GENAI-dlt",
   "edition": "ADVANCED",
   "clusters": [{"num_workers": 2}],
   "libraries": [],
@@ -667,7 +667,7 @@ def kpi():
 **Connections**
 
 * `databricks_default`: host/workspace, OAuth or PAT (prefer OAuth via OIDC).
-* `niloomid_kv`: for pulling non-DBX secrets if absolutely needed.
+* `GENAI_kv`: for pulling non-DBX secrets if absolutely needed.
 
 **DAG** — `dags/rag_pipeline.py`
 
@@ -687,17 +687,17 @@ with DAG("rag_pipeline", start_date=datetime(2025,1,1), schedule_interval="@dail
     silver = DatabricksSubmitRunOperator(
         task_id="silver",
         json={"new_cluster": new_cluster,
-              "notebook_task": {"notebook_path": "/Repos/niloomid/20_silver_cleaning.py"}}
+              "notebook_task": {"notebook_path": "/Repos/GENAI/20_silver_cleaning.py"}}
     )
     gold = DatabricksSubmitRunOperator(
         task_id="gold",
         json={"new_cluster": new_cluster,
-              "notebook_task": {"notebook_path": "/Repos/niloomid/30_gold_kpis.sql"}}
+              "notebook_task": {"notebook_path": "/Repos/GENAI/30_gold_kpis.sql"}}
     )
     embed = DatabricksSubmitRunOperator(
         task_id="embed",
         json={"new_cluster": new_cluster,
-              "notebook_task": {"notebook_path": "/Repos/niloomid/embed_index.py"}}
+              "notebook_task": {"notebook_path": "/Repos/GENAI/embed_index.py"}}
     )
     silver >> gold >> embed
 ```
@@ -757,7 +757,7 @@ jobs:
       - run: pip install -r requirements.txt
       - run: pytest -q
       - run: echo "Run GE suites here"
-      - run: docker build -t niloomid/api ./docker/api
+      - run: docker build -t GENAI/api ./docker/api
 ```
 ### Version2- CI/CD — Advanced (Bundles, Scans, Promotion)
 
@@ -866,7 +866,7 @@ jobs:
 **Tools:** Databricks SQL, Unity Catalog.
 **Inputs:** Storage URL, Access Connector.
 **Actions:** Create **storage credential**, **external location**, **catalogs**, **schemas**, **volumes**, **grants** (*§27*).
-**Outputs:** `niloomid_{env}` with `raw/clean/gold/meta/ops`.
+**Outputs:** `GENAI_{env}` with `raw/clean/gold/meta/ops`.
 **Validation:** `SHOW CATALOGS/SCHEMAS/GRANTS` output captured.
 
 ### Step 5 — Secrets & Policies
@@ -874,7 +874,7 @@ jobs:
 **Tools:** Key Vault, Databricks Secret Scopes, Cluster Policies.
 **Inputs:** LLM/API keys; policy JSON (*§15*).
 **Actions:** Create KV‑backed scope; apply **Single‑User + Photon** policy; tag clusters.
-**Outputs:** `kv-niloomid` scope; policy ID.
+**Outputs:** `kv-GENAI` scope; policy ID.
 **Validation:** `dbutils.secrets.get` works; policy blocks unauthorized edits.
 
 ### Step 6 — Contracts & DQ
