@@ -29,7 +29,7 @@
 ---
 ## 1) High‑Level Architecture (HLA)
 
-<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/2090d7b8-6d16-4b88-9123-7bb2489a7b9e" />
+<img width="518" height="155" alt="image" src="https://github.com/user-attachments/assets/b6018e19-d14d-4604-8b30-3ef5041223c0" />
 
 ```mermaid
 flowchart LR
@@ -382,6 +382,9 @@ repo-root/
 ### Tools & System Integrations
 
 **HLA — System Integration Map**
+<img width="1024" height="1536" alt="image" src="https://github.com/user-attachments/assets/442f58d6-f173-4319-a4ad-9655180b7d39" />
+
+
 
 ```mermaid
 flowchart LR
