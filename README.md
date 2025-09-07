@@ -22,13 +22,6 @@
 | Key Deliverables | Data pipelines (bronze → silver → gold), RAG / LLM / Agents, dashboards, governance & logging |
 
 
-**Evaluation Gates**
-
-- All pipelines pass unit & integration tests
-- Metadata & logging verified in Delta/Unity Catalog
-- Governance & data lineage documented
-- CI/CD pipeline runs successfully
-
 **Scope**
 
 * Data lakehouse (Bronze → Silver → Gold) on Databricks/Delta (Unity Catalog enabled)
@@ -44,11 +37,12 @@
 * RAG: retrieval hit‑rate ≥ 0.85; faithfulness ≥ 0.75; hallucination ≤ 5%
 * Cost budget: ≤ \$X/1k requests; storage lifecycle policies active
 
+**Evaluation Gates**
 
-**Plan (Initiate → Build → Operate)**
-
-Start with Goals, publish a tools map + HLA, then complete foundational setups (infra, networking, Unity Catalog, security). After that, build ingestion, Silver/Gold pipelines, RAG/Agent/API, orchestration, CI/CD, and SRE observability.
-Each phase follows: Inputs → Actions → Outputs → Validation Gate.
+- All pipelines pass unit & integration tests
+- Metadata & logging verified in Delta/Unity Catalog
+- Governance & data lineage documented
+- CI/CD pipeline runs successfully
 
 ---
 ## 1.High‑Level Architecture (HLA)
